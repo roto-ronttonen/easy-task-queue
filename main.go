@@ -257,8 +257,13 @@ func handleQueue(
 			if found {
 				worker := workers[workerIndex]
 				task := worker.workingOnTask
-				log.Printf("Completed task: %s", task.id)
-				removeTaskAndFreeWorker(*task, &workers, &taskQueue)
+				if task == nil {
+					log.Printf("Tried to complete non existent task on worker: %s", worker.address)
+				} else {
+					log.Printf("Completed task: %s", task.id)
+					removeTaskAndFreeWorker(*task, &workers, &taskQueue)
+				}
+
 			}
 
 		case newWorker := <-newWorkerChan:
@@ -271,6 +276,9 @@ func handleQueue(
 			workerIndex, found := findWorkerIndex(workerAddress, workers)
 			if found {
 				worker := workers[workerIndex]
+				if worker.workingOnTask != nil {
+					worker.workingOnTask.inProgress = false
+				}
 				removeWorker(worker, &workers)
 				log.Printf("Disconnected worker: %s", worker.address)
 
