@@ -448,10 +448,14 @@ func handleConnection(
 		return
 	}
 
-	message := strings.Split(string(bytes.Trim(buf, "\x00")), ":")
+	str := string(bytes.Trim(buf, "\x00"))
+
+	log.Printf("Received: %s", str)
+
+	message := strings.Split(str, ":")
 
 	if len(message) < 2 || len(message) > 4 {
-		log.Print("Message malformed")
+		log.Printf("Message malformed: %s", str)
 		conn.Write([]byte("Invalid message"))
 		conn.Close()
 		return
