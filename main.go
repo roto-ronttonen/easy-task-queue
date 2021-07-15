@@ -110,13 +110,17 @@ func removeTask(
 func removeTaskAndFreeWorker(
 	task Task,
 	workers *[]Worker,
-	queue *[]Task) {
+	queue *[]Task,
+) {
 	var workerIndex int
 	var worker Worker
 	workersClone := make([]Worker, len(*workers))
 	copy(workersClone, *workers)
 	found := false
 	for i, w := range workersClone {
+		if w.workingOnTask == nil {
+			continue
+		}
 		if w.workingOnTask.id == task.id {
 			workerIndex = i
 			worker = w
