@@ -8,6 +8,10 @@ On linux run `./easy-task-queue`
 
 Don't know about other systems, but go builds an executable so start how you would start an executable
 
+Also has a dockerfile you can build
+
+Also has a docker image published at `rotoronttonen/easy-task-queue` you can pull
+
 # Enviroment
 
 PORT defaults to 1993
