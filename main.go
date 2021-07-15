@@ -213,7 +213,7 @@ func sendTaskToWorker(worker Worker, removeWorkerChan chan string) {
 		return
 	}
 
-	reply := make([]byte, 1024)
+	reply := make([]byte, 64)
 
 	_, err = conn.Read(reply)
 
@@ -438,7 +438,7 @@ func handleConnection(
 	heartbeatRequestChannel chan HeartbeatRequest,
 ) {
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 64)
 
 	_, err := conn.Read(buf)
 	if err != nil {
