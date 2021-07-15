@@ -308,10 +308,31 @@ func handleQueue(
 				if w.workingOnTask != nil {
 					continue
 				}
-				// Found free worker
-				assignTaskToWorker(task, w, &taskQueue, &workers)
-				// Send request to worker
-				go sendTaskToWorker(w, removeWorkerChan)
+
+				taskIsFree := true
+
+				// Check no other worker is working on this task
+				for _, ww := range workers {
+					if ww.address == w.address {
+						continue
+					}
+					if ww.workingOnTask == nil {
+						continue
+					}
+
+					if ww.workingOnTask.id == task.id {
+						taskIsFree = false
+						break
+					}
+				}
+
+				if taskIsFree {
+					// Found free worker
+					assignTaskToWorker(task, w, &taskQueue, &workers)
+					// Send request to worker
+					go sendTaskToWorker(w, removeWorkerChan)
+				}
+
 			}
 
 		}
