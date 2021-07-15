@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net"
@@ -61,7 +62,6 @@ func main() {
 	taskCompletedChan := make(chan string) // worker address
 	newWorkerChan := make(chan Worker)
 	removeWorkerChan := make(chan string) // worker address
-	workerAddSuccessChan := make(chan string)
 	heartbeatRequestChannel := make(chan HeartbeatRequest)
 
 	if err != nil {
@@ -74,7 +74,6 @@ func main() {
 		newWorkerChan,
 		taskCompletedChan,
 		removeWorkerChan,
-		workerAddSuccessChan,
 		heartbeatRequestChannel,
 	)
 
@@ -91,7 +90,6 @@ func main() {
 			newWorkerChan,
 			taskCompletedChan,
 			removeWorkerChan,
-			workerAddSuccessChan,
 			heartbeatRequestChannel,
 		)
 	}
@@ -225,7 +223,7 @@ func sendTaskToWorker(worker Worker, removeWorkerChan chan string) {
 		return
 	}
 
-	if string(reply) != "worker:ack" {
+	if string(bytes.Trim(reply, "\x00")) != "worker:ack" {
 		log.Printf("Invalid response from worker: %s, removing...", worker.address)
 		removeWorkerChan <- worker.address
 		return
@@ -237,7 +235,6 @@ func handleQueue(
 	newTaskChan chan Task,
 	newWorkerChan chan Worker,
 	taskCompleteChan, removeWorkerChan chan string,
-	workerAddSuccessChan chan string,
 	heartbeatRequestChannel chan HeartbeatRequest,
 ) {
 	var taskQueue []Task
@@ -260,14 +257,9 @@ func handleQueue(
 			}
 
 		case newWorker := <-newWorkerChan:
-			// Dont allow duplicate ip addresses
 			_, found := findWorkerIndex(newWorker.address, workers)
 			if !found {
-				log.Printf("Connected new worker: %s at address: %s with type: %s", newWorker.address, newWorker.address, newWorker.taskType.id)
 				workers = append(workers, newWorker)
-				workerAddSuccessChan <- "success"
-			} else {
-				workerAddSuccessChan <- "Address already in use"
 			}
 
 		case workerAddress := <-removeWorkerChan:
@@ -329,7 +321,6 @@ func handleWorkerRequest(
 	taskCompleteChan chan string,
 	newWorkerChan chan Worker,
 	removeWorkerChan chan string,
-	workerAddSuccessChan chan string,
 	heartbeatRequestChannel chan HeartbeatRequest,
 ) {
 	allowedActions := []string{"join", "disconnect", "ready", "heartbeat"}
@@ -362,9 +353,8 @@ func handleWorkerRequest(
 			workingOnTask: nil,
 		}
 		newWorkerChan <- newWorker
-		successMessage := <-workerAddSuccessChan
 
-		conn.Write([]byte(successMessage))
+		conn.Write([]byte("success"))
 		conn.Close()
 		return
 
@@ -445,7 +435,6 @@ func handleConnection(
 	newTaskChan chan Task,
 	newWorkerChan chan Worker,
 	taskCompleteChan, removeWorkerChan chan string,
-	workerAddSuccessChan chan string,
 	heartbeatRequestChannel chan HeartbeatRequest,
 ) {
 
@@ -459,7 +448,7 @@ func handleConnection(
 		return
 	}
 
-	message := strings.Split(string(buf), ":")
+	message := strings.Split(string(bytes.Trim(buf, "\x00")), ":")
 
 	if len(message) < 2 || len(message) > 4 {
 		log.Print("Message malformed")
@@ -477,7 +466,6 @@ func handleConnection(
 			taskCompleteChan,
 			newWorkerChan,
 			removeWorkerChan,
-			workerAddSuccessChan,
 			heartbeatRequestChannel,
 		)
 	} else if header == "client" {
