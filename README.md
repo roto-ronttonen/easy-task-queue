@@ -1,3 +1,18 @@
+# How to start
+
+First clone this repository with `git clone`
+
+Then inside cloned folder run `go build`
+
+On linux run `./easy-task-queue`
+
+Don't know about other systems, but go builds an executable so start how you would start an executable
+
+# Enviroment
+
+PORT defaults to 1993
+TIMEOUT (in minutes) defaults to 30
+
 # Protocol
 
 Suuuper easy protocol babyyyyy
@@ -27,8 +42,3 @@ Clients:
 For clients its a fire and forget kind of deal. If you want some kind of pub sub for when tasks are complete use redis or something, that will work. Easy task queue is only for really easily creating asynchronous tasks with multiple machines (or most likely containers)
 
 For workers it's also pretty easy. Just listen to messages and do work, the easy queue will take care of everything else and workers will receive more jobs only if they have sent a task-ready message
-
-# Enviroment
-
-PORT defaults to 1993
-TIMEOUT (in minutes) defaults to 30
