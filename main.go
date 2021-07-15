@@ -193,6 +193,7 @@ func assignTaskToWorker(
 		w := workersClone[workerIndex]
 		t := queueClone[taskIndex]
 		t.inProgress = true
+		t.taskStartTime = time.Now()
 		w.workingOnTask = &t
 		queueClone[taskIndex] = t
 		workersClone[workerIndex] = w
