@@ -31,10 +31,11 @@ type Task struct {
 }
 
 type Worker struct {
-	address       string // Should be unique
-	listenPort    string
-	taskType      TaskType
-	workingOnTask *Task
+	address               string // Should be unique
+	listenPort            string
+	taskType              TaskType
+	workingOnTask         *Task
+	lastHeartbeatReceived time.Time
 }
 
 type HeartbeatRequest struct {
@@ -98,12 +99,10 @@ func main() {
 func removeTask(
 	task Task,
 	queue *[]Task) {
-	clone := make([]Task, len(*queue))
-	copy(clone, *queue)
-	index, found := findTaskIndex(task.id, clone)
+	index, found := findTaskIndex(task.id, queue)
 
 	if found {
-		*queue = append(clone[:index], clone[index+1:]...)
+		*queue = append((*queue)[:index], (*queue)[index+1:]...)
 	}
 }
 
@@ -114,10 +113,8 @@ func removeTaskAndFreeWorker(
 ) {
 	var workerIndex int
 	var worker Worker
-	workersClone := make([]Worker, len(*workers))
-	copy(workersClone, *workers)
 	found := false
-	for i, w := range workersClone {
+	for i, w := range *workers {
 		if w.workingOnTask == nil {
 			continue
 		}
@@ -130,16 +127,38 @@ func removeTaskAndFreeWorker(
 	}
 	if found {
 		worker.workingOnTask = nil
-		workersClone[workerIndex] = worker
-		*workers = workersClone
+		(*workers)[workerIndex] = worker
 	}
 	removeTask(task, queue)
 }
 
-func findTaskIndex(taskId string, queue []Task) (int, bool) {
+func removeTaskAndWorker(
+	task Task,
+	workers *[]Worker,
+	queue *[]Task,
+) {
+	var worker Worker
+	found := false
+	for _, w := range *workers {
+		if w.workingOnTask == nil {
+			continue
+		}
+		if w.workingOnTask.id == task.id {
+			worker = w
+			found = true
+			break
+		}
+	}
+	if found {
+		removeWorker(worker, workers)
+	}
+	removeTask(task, queue)
+}
+
+func findTaskIndex(taskId string, queue *[]Task) (int, bool) {
 	var index int
 	found := false
-	for i, t := range queue {
+	for i, t := range *queue {
 		if t.id == taskId {
 			index = i
 			found = true
@@ -149,10 +168,10 @@ func findTaskIndex(taskId string, queue []Task) (int, bool) {
 	return index, found
 }
 
-func findWorkerIndex(workerAddress string, workers []Worker) (int, bool) {
+func findWorkerIndex(workerAddress string, workers *[]Worker) (int, bool) {
 	var index int
 	found := false
-	for i, w := range workers {
+	for i, w := range *workers {
 		if workerAddress == w.address {
 			index = i
 			found = true
@@ -166,12 +185,10 @@ func removeWorker(
 	worker Worker,
 	workers *[]Worker,
 ) {
-	clone := make([]Worker, len(*workers))
-	copy(clone, *workers)
-	index, found := findWorkerIndex(worker.address, *workers)
+	index, found := findWorkerIndex(worker.address, workers)
 
 	if found {
-		*workers = append(clone[:index], clone[index+1:]...)
+		*workers = append((*workers)[:index], (*workers)[index+1:]...)
 	}
 }
 
@@ -179,26 +196,22 @@ func assignTaskToWorker(
 	task Task,
 	worker Worker,
 	queue *[]Task,
+	inProgressTasks *[]Task,
 	workers *[]Worker,
 ) {
-	workersClone := make([]Worker, len(*workers))
-	copy(workersClone, *workers)
-	queueClone := make([]Task, len(*queue))
-	copy(queueClone, *queue)
 
-	workerIndex, workerFound := findWorkerIndex(worker.address, workersClone)
-	taskIndex, taskFound := findTaskIndex(task.id, queueClone)
+	workerIndex, workerFound := findWorkerIndex(worker.address, workers)
+	taskIndex, taskFound := findTaskIndex(task.id, queue)
 
 	if workerFound && taskFound {
-		w := workersClone[workerIndex]
-		t := queueClone[taskIndex]
+		w := (*workers)[workerIndex]
+		t := (*queue)[taskIndex]
 		t.inProgress = true
 		t.taskStartTime = time.Now()
 		w.workingOnTask = &t
-		queueClone[taskIndex] = t
-		workersClone[workerIndex] = w
-		*queue = queueClone
-		*workers = workersClone
+		*inProgressTasks = append(*inProgressTasks, t)
+		removeTask(t, queue)
+		(*workers)[workerIndex] = w
 	}
 }
 
@@ -236,24 +249,61 @@ func sendTaskToWorker(worker Worker, removeWorkerChan chan string) {
 
 }
 
+func handleTimeouts(tasksInProgress *[]Task, workers *[]Worker) {
+	for _, task := range *tasksInProgress {
+		timeoutTime := task.taskStartTime.Add(timeout * time.Minute)
+
+		if time.Now().After(timeoutTime) {
+			log.Printf("Removing task because of timeout: %s", task.id)
+			removeTaskAndWorker(task, workers, tasksInProgress)
+		}
+	}
+}
+
+func handleHeartbeatTimeouts(workers *[]Worker) {
+	for _, worker := range *workers {
+		if time.Now().After(worker.lastHeartbeatReceived.Add(1 * time.Minute)) {
+			log.Printf("Removing worker because no heartbeat: %s", worker.address)
+			removeWorker(worker, workers)
+		}
+	}
+}
+
 func handleQueue(
 	newTaskChan chan Task,
 	newWorkerChan chan Worker,
 	taskCompleteChan, removeWorkerChan chan string,
 	heartbeatRequestChannel chan HeartbeatRequest,
 ) {
-	var taskQueue []Task
+	var taskQueue, tasksInProgress []Task
 	var workers []Worker
 
 	for {
-		log.Printf("Current tasks: %v", taskQueue)
-		log.Printf("Current workers: %v", workers)
+		if len(taskQueue) > 30 {
+			log.Printf("First 30 tasks in queue: %v", taskQueue[:30])
+		} else {
+			log.Printf("Current tasks in queue: %v", taskQueue)
+		}
+		log.Printf("Num tasks in queue: %d", len(taskQueue))
+		if len(tasksInProgress) > 30 {
+			log.Printf("First 30 tasks in progress: %v", tasksInProgress[:30])
+		} else {
+			log.Printf("Current tasks in progress: %v", tasksInProgress)
+		}
+		log.Printf("Num tasks in progress: %d", len(tasksInProgress))
+		if len(workers) > 30 {
+			log.Printf("First 30 workers: %v", workers[:30])
+		} else {
+			log.Printf("Current workers: %v", workers)
+		}
+		log.Printf("Num workers: %d", len(workers))
+
 		select {
 		case newTask := <-newTaskChan:
 			log.Printf("Added new task: %s of type: %s", newTask.id, newTask.taskType.id)
 			taskQueue = append(taskQueue, newTask)
 		case workerAddress := <-taskCompleteChan:
-			workerIndex, found := findWorkerIndex(workerAddress, workers)
+			workerIndex, found := findWorkerIndex(workerAddress, &workers)
 			if found {
 				worker := workers[workerIndex]
 				task := worker.workingOnTask
@@ -261,81 +311,124 @@ func handleQueue(
 					log.Printf("Tried to complete non existent task on worker: %s", worker.address)
 				} else {
 					log.Printf("Completed task: %s", task.id)
-					removeTaskAndFreeWorker(*task, &workers, &taskQueue)
+					removeTaskAndFreeWorker(*task, &workers, &tasksInProgress)
 				}
 
 			}
 
 		case newWorker := <-newWorkerChan:
-			_, found := findWorkerIndex(newWorker.address, workers)
+			_, found := findWorkerIndex(newWorker.address, &workers)
 			if !found {
 				workers = append(workers, newWorker)
 			}
 
 		case workerAddress := <-removeWorkerChan:
-			workerIndex, found := findWorkerIndex(workerAddress, workers)
+			workerIndex, found := findWorkerIndex(workerAddress, &workers)
 			if found {
 				worker := workers[workerIndex]
 				if worker.workingOnTask != nil {
-					worker.workingOnTask.inProgress = false
+					taskIndex, found := findTaskIndex(worker.workingOnTask.id, &tasksInProgress)
+					if found {
+						task := tasksInProgress[taskIndex]
+						task.inProgress = false
+						// Prepend to taskqueue
+						taskQueue = append([]Task{task}, taskQueue...)
+						removeTask(*worker.workingOnTask, &tasksInProgress)
+					}
 				}
 				removeWorker(worker, &workers)
 				log.Printf("Disconnected worker: %s", worker.address)
 
 			}
 		case heartbeatRequest := <-heartbeatRequestChannel:
-			_, found := findWorkerIndex(heartbeatRequest.workerAddress, workers)
+			index, found := findWorkerIndex(heartbeatRequest.workerAddress, &workers)
+			if found {
+				workers[index].lastHeartbeatReceived = time.Now()
+			}
 			heartbeatRequest.responseChannel <- found
 		}
 		// Always after any channel emits, try to find workers for tasks
-		for _, task := range taskQueue {
-			// Check if task has timedout otherwise ignore
-			if task.inProgress {
-				timeoutTime := task.taskStartTime.Add(timeout * time.Minute)
 
-				if time.Now().After(timeoutTime) {
-					// Remove task and free
-					removeTaskAndFreeWorker(task, &workers, &taskQueue)
-				}
-				continue
+		// NEW VERY FAST ALGORITHM
+
+		// Check timedout tasks
+		handleTimeouts(&tasksInProgress, &workers)
+		// Check timedout workers
+		handleHeartbeatTimeouts(&workers)
+
+		// Find free workers
+		// This is better because in sensible cases there are more tasks than workers
+		// And if not then there isn't much load anyways
+		var freeWorkers []Worker
+		for _, worker := range workers {
+			if worker.workingOnTask == nil {
+				freeWorkers = append(freeWorkers, worker)
 			}
-			// Check if any workers avaiable for TaskType
-			taskType := task.taskType
-			for _, w := range workers {
-				if w.taskType.id != taskType.id {
-					continue
-				}
-				if w.workingOnTask != nil {
-					continue
-				}
-
-				taskIsFree := true
-
-				// Check no other worker is working on this task
-				for _, ww := range workers {
-					if ww.address == w.address {
-						continue
-					}
-					if ww.workingOnTask == nil {
-						continue
-					}
-
-					if ww.workingOnTask.id == task.id {
-						taskIsFree = false
-						break
-					}
-				}
-
-				if taskIsFree {
-					// Found free worker
-					assignTaskToWorker(task, w, &taskQueue, &workers)
-					// Send request to worker
-					go sendTaskToWorker(w, removeWorkerChan)
-				}
-
-			}
-
 		}
+
+		// Loop throught free workers and find a task for them
+		for _, freeWorker := range freeWorkers {
+			taskType := freeWorker.taskType.id
+			// This part might require optimization some day
+			// But thankfully it doesn't run on every request like previously
+			for _, task := range taskQueue {
+				if task.taskType.id == taskType {
+					assignTaskToWorker(task, freeWorker, &taskQueue, &tasksInProgress, &workers)
+					go sendTaskToWorker(freeWorker, removeWorkerChan)
+					break
+				}
+			}
+		}
+
+		// OLD VERY SLOW ALGORITHM (also doesnt work anymore with addition of tasksInProgress slice)
+		// for _, task := range taskQueue {
+		// 	// Check if task has timedout otherwise ignore
+		// 	if task.inProgress {
+		// 		timeoutTime := task.taskStartTime.Add(timeout * time.Minute)
+
+		// 		if time.Now().After(timeoutTime) {
+		// 			// Remove task and free
+		// 			removeTaskAndFreeWorker(task, &workers, &taskQueue)
+		// 		}
+		// 		continue
+		// 	}
+		// 	// Check if any workers avaiable for TaskType
+		// 	taskType := task.taskType
+		// 	for _, w := range workers {
+		// 		if w.taskType.id != taskType.id {
+		// 			continue
+		// 		}
+		// 		if w.workingOnTask != nil {
+		// 			continue
+		// 		}
+
+		// 		taskIsFree := true
+
+		// 		// Check no other worker is working on this task
+		// 		for _, ww := range workers {
+		// 			if ww.address == w.address {
+		// 				continue
+		// 			}
+		// 			if ww.workingOnTask == nil {
+		// 				continue
+		// 			}
+
+		// 			if ww.workingOnTask.id == task.id {
+		// 				taskIsFree = false
+		// 				break
+		// 			}
+		// 		}
+
+		// 		if taskIsFree {
+		// 			// Found free worker
+		// 			assignTaskToWorker(task, w, &taskQueue, &workers)
+		// 			// Send request to worker
+		// 			go sendTaskToWorker(w, removeWorkerChan)
+		// 		}
+
+		// 	}
+
+		// }
 
 	}
 }
@@ -382,9 +475,10 @@ func handleWorkerRequest(
 			taskType: TaskType{
 				id: taskTypeId,
 			},
-			address:       strings.Split(conn.RemoteAddr().String(), ":")[0],
-			listenPort:    workerListenPort,
-			workingOnTask: nil,
+			address:               strings.Split(conn.RemoteAddr().String(), ":")[0],
+			listenPort:            workerListenPort,
+			workingOnTask:         nil,
+			lastHeartbeatReceived: time.Now(),
 		}
 		newWorkerChan <- newWorker
 
@@ -472,6 +566,8 @@ func handleConnection(
 	heartbeatRequestChannel chan HeartbeatRequest,
 ) {
 
+	connectionStartTime := time.Now()
+
 	buf := make([]byte, 64)
 
 	_, err := conn.Read(buf)
@@ -512,7 +608,8 @@ func handleConnection(
 		log.Printf("Message header invalid: %s", header)
 		conn.Write([]byte("Message header invalid"))
 		conn.Close()
-
 	}
+
+	log.Printf("Message %s, handled in time %s", str, time.Since(connectionStartTime))
 
 }

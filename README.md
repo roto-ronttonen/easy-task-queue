@@ -32,7 +32,7 @@ Worker initiated requests:
 - Register as worker: send `worker:join:{tasktypeid}:{workerListenPort}`
 - Disconnect as worker: send `worker:disconnect`
 - Task completed: send `worker:ready`
-- Heartbeat to check if worker still registered: send `worker:heartbeat`
+- Heartbeat to check if worker still registered (heartbeat is required every 1 minute): send `worker:heartbeat`
 
 Task queue iniated requests:
 
