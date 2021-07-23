@@ -47,4 +47,4 @@ For clients its a fire and forget kind of deal. If you want some kind of pub sub
 
 For workers it's also pretty easy. Just listen to messages and do work, the easy queue will take care of everything else and workers will receive more jobs only if they have sent a task-ready message
 
-Optional data defaults to empty string
+If optionalData not in request, the request length will be 2 (for worker) otherwise 3 (for worker)

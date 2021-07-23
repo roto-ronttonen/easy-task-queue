@@ -225,7 +225,14 @@ func sendTaskToWorker(worker Worker, task Task, removeWorkerChan chan string) {
 		return
 	}
 
-	_, err = conn.Write([]byte(fmt.Sprintf("worker:start:%s", task.data)))
+	var msg string
+	if len(task.data) > 0 {
+		msg = fmt.Sprintf("worker:start:%s", task.data)
+	} else {
+		msg = "worker:start"
+	}
+
+	_, err = conn.Write([]byte(msg))
 	if err != nil {
 		log.Printf("Failed to send message to worker: %s, removing...", worker.address)
 		removeWorkerChan <- worker.address
