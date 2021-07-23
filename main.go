@@ -28,6 +28,7 @@ type Task struct {
 	taskType      TaskType
 	inProgress    bool
 	taskStartTime time.Time
+	data          string
 }
 
 type Worker struct {
@@ -215,7 +216,7 @@ func assignTaskToWorker(
 	}
 }
 
-func sendTaskToWorker(worker Worker, removeWorkerChan chan string) {
+func sendTaskToWorker(worker Worker, task Task, removeWorkerChan chan string) {
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", worker.address, worker.listenPort))
 	if err != nil {
 		log.Printf("Failed to connect to worker %s, removing...", worker.address)
@@ -224,7 +225,7 @@ func sendTaskToWorker(worker Worker, removeWorkerChan chan string) {
 		return
 	}
 
-	_, err = conn.Write([]byte("worker:start"))
+	_, err = conn.Write([]byte(fmt.Sprintf("worker:start:%s", task.data)))
 	if err != nil {
 		log.Printf("Failed to send message to worker: %s, removing...", worker.address)
 		removeWorkerChan <- worker.address
@@ -374,7 +375,7 @@ func handleQueue(
 			for _, task := range taskQueue {
 				if task.taskType.id == taskType {
 					assignTaskToWorker(task, freeWorker, &taskQueue, &tasksInProgress, &workers)
-					go sendTaskToWorker(freeWorker, removeWorkerChan)
+					go sendTaskToWorker(freeWorker, task, removeWorkerChan)
 					break
 				}
 			}
@@ -549,6 +550,10 @@ func handleClientRequest(
 			id: taskTypeId,
 		},
 		inProgress: false,
+	}
+
+	if len(message) == 4 {
+		newTask.data = message[3]
 	}
 
 	newTaskChan <- newTask

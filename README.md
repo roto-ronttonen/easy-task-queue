@@ -36,13 +36,15 @@ Worker initiated requests:
 
 Task queue iniated requests:
 
-- Listen to message: `worker:start` (on receive send ack and start your work)
+- Listen to message: `worker:start:{optionalData}` (on receive send ack and start your work)
 - Ack task received: send `worker:ack` (this should be your reply to worker:start, if you dont respond with this the worker will be removed and a reconnect will be necessary)
 
 Clients:
 
-- Queue new task: send `client:task:{tasktypeid}`
+- Queue new task: send `client:task:{tasktypeid}:{optionalData}`
 
 For clients its a fire and forget kind of deal. If you want some kind of pub sub for when tasks are complete use redis or something, that will work. Easy task queue is only for really easily creating asynchronous tasks with multiple machines (or most likely containers)
 
 For workers it's also pretty easy. Just listen to messages and do work, the easy queue will take care of everything else and workers will receive more jobs only if they have sent a task-ready message
+
+Optional data defaults to empty string
